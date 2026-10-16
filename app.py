@@ -47,16 +47,16 @@ class Window(QMainWindow):
         outer.addWidget(self.tabs)
         video = self.page('视频与窗口')
         self.text(video, 'rtsp', 'RTSP 视频地址', secret=True)
-        self.text(video, 'player', 'PotPlayer exe', browse='播放器 (*.exe)')
-        for key, label, low, high in [('width', '窗口宽度（物理像素）', 160, 7680),
-                ('height', '窗口高度（物理像素）', 120, 4320),
+        self.check(video, 'muted', '静音播放')
+        for key, label, low, high in [('width', '窗口宽度（逻辑像素）', 160, 7680),
+                ('height', '窗口高度（逻辑像素）', 120, 4320),
                 ('x', '左上角 X（支持负数副屏）', -32768, 32767),
                 ('y', '左上角 Y', -32768, 32767), ('seconds', '显示时间（秒）', 1, 3600)]:
             self.number(video, key, label, low, high)
         center = QPushButton('放到主屏幕右下角')
         center.clicked.connect(self.bottom_right)
         video.addRow('', center)
-        video.addRow(QLabel('窗口尺寸包含标题栏和边框。建议关闭 PotPlayer 的全屏启动。'))
+        video.addRow(QLabel('视频直接在本程序窗口播放，无需安装外部播放器。'))
         mqtt = self.page('MQTT 连接')
         self.text(mqtt, 'host', 'Broker 主机名 / IP')
         self.number(mqtt, 'port', '端口', 1, 65535)
@@ -68,17 +68,15 @@ class Window(QMainWindow):
         self.text(mqtt, 'ca', '自定义 CA（可空）', browse='证书 (*.pem *.crt);;所有文件 (*)')
         mqtt.addRow(QLabel('默认触发内容为 ring；忽略保留消息。TLS 会验证证书与主机名。'))
         recovery = self.page('重试与启动')
-        self.check(recovery, 'precheck', '播放前用 FFmpeg 预检测（默认关闭；PotPlayer 能播时无需勾选）')
         for key, label, low, high in [('wait_seconds', '最长等待视频上线（秒）', 5, 300),
-                ('probe_seconds', '每次解码检测超时（秒）', 2, 30),
+                ('probe_seconds', '连接 / 无画面超时（秒）', 2, 30),
                 ('retry_seconds', '重试间隔（秒）', 1, 30),
-                ('restart_seconds', '定时重新打开播放器（0 = 关闭）', 0, 300)]:
+                ('restart_seconds', '定时重新连接视频（0 = 关闭）', 0, 300)]:
             self.number(recovery, key, label, low, high)
         self.check(recovery, 'autostart', '当前用户登录 Windows 后自动运行（保存后生效）')
-        hint = QLabel('默认直接打开 PotPlayer，不依赖 FFmpeg 的检测结果。\n'
-                      '勾选预检测后才会等待解码成功；检测失败不代表播放器不能播放。\n'
-                      '定时重开可应对播放器卡住，但会中断画面；建议设为 0，必要时 20 秒。\n'
-                      '点击窗口关闭按钮会缩到托盘；从托盘菜单选择“退出”才能结束。')
+        hint = QLabel('触发后立即弹窗，收到第一帧后开始显示倒计时。\n'
+                      '连接失败或持续无画面时自动重连；待命时不连接摄像头。\n'
+                      '关闭视频窗口会停止播放；关闭设置窗口会缩到托盘。')
         hint.setWordWrap(True)
         recovery.addRow(hint)
         location = QLabel(f'配置与日志目录：{app_dir()}')
@@ -169,12 +167,9 @@ class Window(QMainWindow):
                 for k, v in self.fields.items()}
 
     def bottom_right(self):
-        # Qt coordinates are logical; Win32 coordinates follow this process's DPI context.
-        import win32api
-        info = win32api.GetMonitorInfo(win32api.MonitorFromPoint((0, 0), 1))
-        left, top, right, bottom = info['Work']
-        self.fields['x'].setValue(max(left, right - self.fields['width'].value() - 20))
-        self.fields['y'].setValue(max(top, bottom - self.fields['height'].value() - 20))
+        rect = QApplication.primaryScreen().availableGeometry()
+        self.fields['x'].setValue(rect.right() - self.fields['width'].value() - 20)
+        self.fields['y'].setValue(rect.bottom() - self.fields['height'].value() - 20)
 
     def error(self, message):
         QMessageBox.warning(self, '请检查配置', message)

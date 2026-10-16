@@ -25,137 +25,93 @@ class StoreTests(unittest.TestCase):
             self.assertNotIn(b'secret-TEST-8371', raw)
             self.assertNotIn(b'PASS_TEST', raw)
 
-    def test_reject_non_potplayer(self):
-        with self.assertRaises(ValueError):
-            validate(DEFAULTS | dict(rtsp='rtsp://host/live', player='cmd.exe'))
+    def test_no_external_player_required(self):
+        validate(DEFAULTS | dict(rtsp='rtsp://host/live'))
+
+    def test_legacy_settings_migrate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(directory)
+            store.save(DEFAULTS | dict(player='old.exe', precheck=True))
+            self.assertEqual(store.load(), DEFAULTS)
 
 
 class EngineTests(unittest.TestCase):
     def setUp(self):
         self.engine = PopupEngine()
         self.engine.timer.stop()
+        self.engine.config = DEFAULTS | dict(rtsp='rtsp://localhost/live')
 
     def tearDown(self):
-        self.engine.timer.stop()
+        self.engine.stop()
+        self.engine.popup.deleteLater()
 
-    def test_default_bypasses_probe(self):
-        with patch('engine.time.monotonic', return_value=100):
-            self.engine.trigger(DEFAULTS)
-        with patch.object(self.engine, 'launch_probe') as probe, patch.object(self.engine, 'launch_player') as player:
-            self.engine._tick(101)
-        probe.assert_not_called()
-        player.assert_called_once_with(101)
+    def trigger(self, now=100):
+        with patch('engine.time.monotonic', return_value=now), patch.object(self.engine, 'launch_player'):
+            self.engine.trigger(self.engine.config)
 
-    def test_optional_probe_still_available(self):
-        with patch('engine.time.monotonic', return_value=100):
-            self.engine.trigger(DEFAULTS | dict(precheck=True))
-        with patch.object(self.engine, 'launch_probe') as probe, patch.object(self.engine, 'launch_player') as player:
-            self.engine._tick(101)
-        player.assert_not_called()
-        probe.assert_called_once_with(101)
+    def test_immediate_popup_without_external_process(self):
+        self.trigger()
+        self.assertTrue(self.engine.popup.isVisible())
+        self.assertEqual(self.engine.deadline, 0)
 
-    def test_older_config_defaults_to_direct_play(self):
-        legacy = DEFAULTS.copy()
-        legacy.pop('precheck')
-        with patch('engine.time.monotonic', return_value=100):
-            self.engine.trigger(legacy)
-        with patch.object(self.engine, 'launch_player') as player:
-            self.engine._tick(101)
-        player.assert_called_once_with(101)
+    def test_first_frame_starts_clock(self):
+        self.trigger()
+        self.engine.state = 'connecting'
+        with patch('engine.time.monotonic', return_value=104):
+            self.engine.on_frame(Mock(isValid=lambda: False))
+            self.assertEqual(self.engine.deadline, 0)
+            self.engine.on_frame(Mock(isValid=lambda: True))
+        self.assertEqual(self.engine.deadline, 164)
+        self.assertEqual(self.engine.state, 'playing')
 
-    def test_repeated_trigger_extends_without_spawn(self):
-        with patch('engine.time.monotonic', return_value=100):
-            self.engine.trigger(DEFAULTS)
-        self.assertEqual(self.engine.wait_until, 145)
-        with patch('engine.time.monotonic', return_value=110):
-            self.engine.trigger(DEFAULTS)
+    def test_repeat_extends_wait_and_display(self):
+        self.trigger()
+        self.trigger(110)
         self.assertEqual(self.engine.wait_until, 155)
-        self.engine.deadline = 170
-        with patch('engine.time.monotonic', return_value=150):
-            self.engine.trigger(DEFAULTS)
-        self.assertEqual(self.engine.deadline, 210)
-        self.assertIsNone(self.engine.player)
+        self.engine.deadline = 160
+        self.trigger(120)
+        self.assertEqual(self.engine.deadline, 180)
 
-    def test_deadline_terminates_only_owned_handle(self):
-        own = Mock()
-        own.poll.return_value = None
-        own.stdout = None
-        unrelated = Mock()
-        self.engine.player = own
-        self.engine.state = 'playing'
-        self.engine.deadline = 100
-        self.engine._tick(101)
-        own.terminate.assert_called_once()
-        unrelated.terminate.assert_not_called()
+    def test_deadline_closes_and_releases(self):
+        self.trigger()
+        self.engine.deadline = 120
+        self.engine._tick(121)
+        self.assertFalse(self.engine.popup.isVisible())
         self.assertEqual(self.engine.state, 'idle')
 
-    def test_probe_timeout_retry(self):
-        self.engine.config = DEFAULTS.copy()
-        self.engine.state = 'probing'
-        self.engine.wait_until = 200
-        self.engine.probe_started = 100
-        probe = Mock()
-        probe.poll.return_value = None
-        self.engine.probe = probe
+    def test_wait_timeout(self):
+        self.trigger()
+        self.engine._tick(146)
+        self.assertEqual(self.engine.state, 'idle')
+
+    def test_stalled_video_retries_without_resetting_deadline(self):
+        self.trigger()
+        self.engine.state = 'playing'
+        self.engine.last_frame = 100
+        self.engine.deadline = 160
         self.engine._tick(109)
-        probe.terminate.assert_called_once()
         self.assertEqual(self.engine.state, 'waiting')
+        self.assertEqual(self.engine.deadline, 160)
+        self.assertEqual(self.engine.next_attempt, 111)
 
-    def test_wait_timeout_does_not_launch(self):
-        self.engine.config = DEFAULTS.copy()
-        self.engine.state = 'waiting'
-        self.engine.wait_until = 20
-        with patch.object(self.engine, 'launch_probe') as launch:
-            self.engine._tick(21)
-            launch.assert_not_called()
+    def test_old_player_errors_are_ignored(self):
+        self.engine.state = 'connecting'
+        self.engine.player = Mock()
+        self.engine.failed(Mock())
+        self.assertEqual(self.engine.state, 'connecting')
+        self.engine.failed(self.engine.player)
+        self.assertEqual(self.engine.state, 'retry')
+
+    def test_user_close_stops_retries(self):
+        self.trigger()
+        self.engine.popup.close()
         self.assertEqual(self.engine.state, 'idle')
 
-    def test_success_without_frame_is_failure(self):
-        self.engine.config = DEFAULTS.copy()
-        self.engine.state = 'probing'
-        self.engine.wait_until = 200
-        probe = Mock(returncode=0)
-        probe.poll.return_value = 0
-        probe.stdout.read.return_value = b''
-        self.engine.probe = probe
-        with patch.object(self.engine, 'launch_player') as launch:
-            self.engine._tick(110)
-            launch.assert_not_called()
-        self.assertEqual(self.engine.state, 'waiting')
-
-    def test_ready_frame_launches(self):
-        self.engine.config = DEFAULTS.copy()
-        self.engine.state = 'probing'
-        self.engine.wait_until = 200
-        probe = Mock(returncode=0)
-        probe.poll.return_value = 0
-        probe.stdout.read.return_value = b'\x12'
-        self.engine.probe = probe
-        with patch.object(self.engine, 'launch_player') as launch:
-            self.engine._tick(110)
-            launch.assert_called_once_with(110)
-
-    def test_display_clock_starts_at_window_and_restart_keeps_deadline(self):
-        self.engine.config = DEFAULTS | dict(restart_seconds=20)
-        self.engine.state = 'playing'
-        self.engine.wait_until = 150
-        self.engine.player_started = 100
-        own = Mock()
-        own.poll.return_value = None
-        own.stdout = None
-        self.engine.player = own
-        with patch.object(self.engine, 'windows', return_value=[99]), patch.object(self.engine, 'position'):
-            self.engine._tick(102)
-            self.assertEqual(self.engine.deadline, 162)
-            self.engine._tick(121)
-        self.assertEqual(self.engine.deadline, 162)
-        self.assertEqual(self.engine.state, 'waiting')
-
-    def test_launch_uses_new_instance(self):
-        self.engine.config = DEFAULTS | dict(rtsp='rtsp://host/live')
-        with patch('engine.subprocess.Popen') as popen:
-            self.engine.launch_player(100)
-            self.assertEqual(popen.call_args.args[0], [DEFAULTS['player'], 'rtsp://host/live', '/new'])
+    def test_late_frame_does_not_restart_stopped_playback(self):
+        self.engine.stop()
+        self.engine.on_frame(Mock(isValid=lambda: True))
+        self.assertEqual(self.engine.state, 'idle')
+        self.assertEqual(self.engine.deadline, 0)
 
 
 class GuiTests(unittest.TestCase):

@@ -1,11 +1,10 @@
-"""Offline packaged-runtime check; does not connect MQTT or change startup settings."""
+"""Offline packaged runtime verification, including real video decoding."""
 import json
-import subprocess
+import sys
 import tempfile
 from pathlib import Path
-
-import imageio_ffmpeg
-
+from PySide6.QtCore import QEventLoop, QTimer, QUrl
+from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from settings import DEFAULTS, Store, app_dir
 
 
@@ -18,16 +17,34 @@ def run():
             store.save(expected)
             results['sqlite_dpapi_roundtrip'] = store.load() == expected
             results['secrets_not_plaintext'] = b'check-password' not in store.path.read_bytes()
-        process = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-loglevel', 'quiet',
-            '-f', 'lavfi', '-i', 'color=black:s=16x16', '-frames:v', '1', '-vf', 'scale=1:1',
-            '-pix_fmt', 'gray', '-f', 'rawvideo', 'pipe:1'], stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
-        results['bundled_ffmpeg_decodes_frame'] = process.returncode == 0 and len(process.stdout) == 1
+        player = QMediaPlayer()
+        sink = QVideoSink()
+        player.setVideoSink(sink)
+        loop = QEventLoop()
+        results['embedded_video_decodes_frame'] = False
+        def received(frame):
+            if frame.isValid():
+                results['embedded_video_decodes_frame'] = True
+                loop.quit()
+        sink.videoFrameChanged.connect(received)
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(loop.quit)
+        media = Path(getattr(sys, '_MEIPASS', Path(__file__).parent)) / 'playback-check.mp4'
+        player.setSource(QUrl.fromLocalFile(str(media)))
+        player.play()
+        timer.start(15000)
+        loop.exec()
+        timer.stop()
+        player.stop()
         from app import Window
         with tempfile.TemporaryDirectory(dir=app_dir(), prefix='.self-check-') as directory:
             window = Window(Store(directory), DEFAULTS.copy())
             results['gui_constructs'] = window.values()['seconds'] == 60
+            results['no_external_player_setting'] = 'player' not in window.values()
             window.engine.timer.stop()
+            window.engine.stop()
+            window.engine.popup.deleteLater()
             window.tray.hide()
             window.deleteLater()
     except Exception:

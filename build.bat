@@ -14,7 +14,7 @@ if not exist ".venv\Scripts\python.exe" (
 if errorlevel 1 goto :fail
 ".venv\Scripts\python.exe" -m unittest discover -s tests -v
 if errorlevel 1 goto :fail
-".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --windowed --name DoorbellPopup --collect-all imageio_ffmpeg app.py
+".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --windowed --name DoorbellPopup --add-data "playback-check.mp4;." app.py
 if errorlevel 1 goto :fail
 start "" /wait "dist\DoorbellPopup.exe" --self-check
 if errorlevel 1 goto :fail

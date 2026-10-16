@@ -10,11 +10,11 @@ from pathlib import Path
 
 import win32crypt
 
-DEFAULTS = dict(rtsp='', player=r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
+DEFAULTS = dict(rtsp='', muted=False,
                 width=640, height=360, x=40, y=40, seconds=60,
                 host='', port=1883, username='', password='', topic='home/doorbell/ring',
                 payload='ring', tls=False, ca='', wait_seconds=45, probe_seconds=8,
-                retry_seconds=2, restart_seconds=0, autostart=False, precheck=False)
+                retry_seconds=2, restart_seconds=0, autostart=False)
 RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
 RUN_NAME = 'DoorbellPopup'
 
@@ -55,7 +55,7 @@ class Store:
             data = json.loads(row[0])
             for key in ('rtsp', 'password'):
                 data[key] = unprotect(data[key])
-            result.update(data)
+            result.update({key: value for key, value in data.items() if key in DEFAULTS})
         return result
 
     def save(self, config):
@@ -102,9 +102,6 @@ def validate(c, mqtt_required=False):
         raise ValueError('请填写有效的 rtsp:// 或 rtsps:// 视频地址。')
     if any(ch in c['rtsp'] for ch in ('\r', '\n', '\x00')):
         raise ValueError('视频地址不能包含换行或空字符。')
-    player = Path(c['player'])
-    if not player.is_file() or player.name.lower() not in ('potplayermini.exe', 'potplayermini64.exe'):
-        raise ValueError('请选择 PotPlayerMini.exe 或 PotPlayerMini64.exe（不是快捷方式）。')
     if mqtt_required and not c['host'].strip():
         raise ValueError('请填写 MQTT broker 主机名或 IP。')
     if c['host'] and ('://' in c['host'] or '/' in c['host']):

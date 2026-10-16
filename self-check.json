@@ -1,0 +1,8 @@
+{
+  "sqlite_dpapi_roundtrip": true,
+  "secrets_not_plaintext": true,
+  "embedded_video_decodes_frame": true,
+  "gui_constructs": true,
+  "no_external_player_setting": true,
+  "passed": true
+}

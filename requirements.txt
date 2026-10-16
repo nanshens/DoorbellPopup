@@ -1,0 +1,5 @@
+PySide6==6.8.3
+paho-mqtt==2.1.0
+pywin32==310
+imageio-ffmpeg==0.6.0
+pyinstaller==6.16.0

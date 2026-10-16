@@ -1,0 +1,8 @@
+# Paste this action into your EXISTING doorbell automation.
+# Keep your working SwitchBot trigger(s). No entity ID is assumed here.
+- action: mqtt.publish
+  data:
+    topic: home/doorbell/ring
+    payload: ring
+    qos: 1
+    retain: false

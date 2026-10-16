@@ -46,6 +46,6 @@ settings.db 与 doorbell.log 保存在源码目录，未来打包后保存在 EX
 
 运行 `python -m unittest discover -s tests -v` 验证行为。`python app.py --self-check` 使用项目自带的无隐私测试视频验证真实解码、界面和加密，不连接 MQTT 或摄像头。
 
-当前按用户要求先测试源码，不交付 EXE。确认实际 RTSP 通过后可使用 build.bat 打包，脚本已更新为内嵌播放版。
+已按用户要求打包内嵌播放版 EXE：dist/DoorbellPopup.exe，打包自检通过。后续可使用 build.bat 重新打包。退出旧程序后，将 EXE 放到原 settings.db 所在目录即可沿用配置；自启动需在 EXE 中重新保存。
 
 组件文档：https://doc.qt.io/qtforpython-6/PySide6/QtMultimedia/QMediaPlayer.html

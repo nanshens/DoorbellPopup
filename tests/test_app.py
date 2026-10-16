@@ -38,6 +38,31 @@ class EngineTests(unittest.TestCase):
     def tearDown(self):
         self.engine.timer.stop()
 
+    def test_default_bypasses_probe(self):
+        with patch('engine.time.monotonic', return_value=100):
+            self.engine.trigger(DEFAULTS)
+        with patch.object(self.engine, 'launch_probe') as probe, patch.object(self.engine, 'launch_player') as player:
+            self.engine._tick(101)
+        probe.assert_not_called()
+        player.assert_called_once_with(101)
+
+    def test_optional_probe_still_available(self):
+        with patch('engine.time.monotonic', return_value=100):
+            self.engine.trigger(DEFAULTS | dict(precheck=True))
+        with patch.object(self.engine, 'launch_probe') as probe, patch.object(self.engine, 'launch_player') as player:
+            self.engine._tick(101)
+        player.assert_not_called()
+        probe.assert_called_once_with(101)
+
+    def test_older_config_defaults_to_direct_play(self):
+        legacy = DEFAULTS.copy()
+        legacy.pop('precheck')
+        with patch('engine.time.monotonic', return_value=100):
+            self.engine.trigger(legacy)
+        with patch.object(self.engine, 'launch_player') as player:
+            self.engine._tick(101)
+        player.assert_called_once_with(101)
+
     def test_repeated_trigger_extends_without_spawn(self):
         with patch('engine.time.monotonic', return_value=100):
             self.engine.trigger(DEFAULTS)

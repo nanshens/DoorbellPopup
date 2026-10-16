@@ -70,12 +70,14 @@ class PopupEngine(QObject):
         self.wait_until = now + config['wait_seconds']
         self.next_attempt = now
         self.state = 'waiting'
-        self.say('门铃触发：等待视频流上线')
+        self.say('触发：等待视频预检测' if self.config.get('precheck', False)
+                 else '触发：直接交给 PotPlayer 播放')
 
     def retry(self):
         self.state = 'waiting'
         self.next_attempt = time.monotonic() + self.config['retry_seconds']
-        self.say('视频尚未就绪，稍后重试')
+        self.say('预检测未通过（不代表 PotPlayer 无法播放），稍后重试'
+                 if self.config.get('precheck', False) else '播放器已退出或未出现窗口，稍后重试')
 
     def launch_probe(self, now):
         args = [imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-hide_banner', '-loglevel', 'quiet',
@@ -94,7 +96,7 @@ class PopupEngine(QObject):
         self.player_started = now
         self.had_window = False
         self.state = 'playing'
-        self.say('视频已就绪，正在打开独立 PotPlayer 窗口')
+        self.say('正在打开独立 PotPlayer 窗口；实际画面由播放器加载')
 
     def windows(self):
         if self.player is None or self.player.poll() is not None:
@@ -132,7 +134,10 @@ class PopupEngine(QObject):
             self.say('等待视频超时；下次门铃触发会重新尝试')
             return
         if self.state == 'waiting' and now >= self.next_attempt:
-            self.launch_probe(now)
+            if self.config.get('precheck', False):
+                self.launch_probe(now)
+            else:
+                self.launch_player(now)
         elif self.state == 'probing':
             if self.probe.poll() is not None:
                 data = self.probe.stdout.read()

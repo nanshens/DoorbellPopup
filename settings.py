@@ -14,7 +14,7 @@ DEFAULTS = dict(rtsp='', player=r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini6
                 width=640, height=360, x=40, y=40, seconds=60,
                 host='', port=1883, username='', password='', topic='home/doorbell/ring',
                 payload='ring', tls=False, ca='', wait_seconds=45, probe_seconds=8,
-                retry_seconds=2, restart_seconds=0, autostart=False)
+                retry_seconds=2, restart_seconds=0, autostart=False, precheck=False)
 RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
 RUN_NAME = 'DoorbellPopup'
 

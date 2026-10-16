@@ -68,13 +68,15 @@ class Window(QMainWindow):
         self.text(mqtt, 'ca', '自定义 CA（可空）', browse='证书 (*.pem *.crt);;所有文件 (*)')
         mqtt.addRow(QLabel('默认触发内容为 ring；忽略保留消息。TLS 会验证证书与主机名。'))
         recovery = self.page('重试与启动')
+        self.check(recovery, 'precheck', '播放前用 FFmpeg 预检测（默认关闭；PotPlayer 能播时无需勾选）')
         for key, label, low, high in [('wait_seconds', '最长等待视频上线（秒）', 5, 300),
                 ('probe_seconds', '每次解码检测超时（秒）', 2, 30),
                 ('retry_seconds', '重试间隔（秒）', 1, 30),
                 ('restart_seconds', '定时重新打开播放器（0 = 关闭）', 0, 300)]:
             self.number(recovery, key, label, low, high)
         self.check(recovery, 'autostart', '当前用户登录 Windows 后自动运行（保存后生效）')
-        hint = QLabel('视频流未上线时反复检测，解码成功后才打开播放器。\n'
+        hint = QLabel('默认直接打开 PotPlayer，不依赖 FFmpeg 的检测结果。\n'
+                      '勾选预检测后才会等待解码成功；检测失败不代表播放器不能播放。\n'
                       '定时重开可应对播放器卡住，但会中断画面；建议设为 0，必要时 20 秒。\n'
                       '点击窗口关闭按钮会缩到托盘；从托盘菜单选择“退出”才能结束。')
         hint.setWordWrap(True)
@@ -224,6 +226,9 @@ class Window(QMainWindow):
         except Exception:
             self.error('配置格式无效。')
             return
+        if self.engine.state != 'idle' and c != self.engine.config:
+            if not self.engine.stop():
+                return
         self.engine.trigger(c)
 
     def test(self):
